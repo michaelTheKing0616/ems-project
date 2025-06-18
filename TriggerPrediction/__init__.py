@@ -1,23 +1,39 @@
-# TriggerPrediction/__init__.py
 import azure.functions as func
-from trigger_prediction import preprocess_data, call_ml_endpoint, store_predictions
+import requests
+import json
 import os
-import logging
-from pathlib import Path
+import psycopg2
+from datetime import datetime
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('Triggering prediction')
-    input_file = Path(os.environ['INPUT_FILE'])
-    endpoint_url = os.environ['ENDPOINT_URL']
-    api_key = os.environ['API_KEY']
-    db_connection = os.environ['TIMESCALEDB_CONNECTION']
     try:
-        df = preprocess_data(str(input_file))
-        data = [...]  # Prepare data as in trigger_prediction.py
-        predictions = call_ml_endpoint(endpoint_url, api_key, data)
-        results = [...]  # Process predictions as in trigger_prediction.py
-        store_predictions(results, db_connection)
+        endpoint_url = os.getenv("ENDPOINT_URL")
+        api_key = os.getenv("API_KEY")
+
+        input_data = {
+            "data": [{
+                "start": "2025-06-15T00:00:00Z",
+                "target": [50.5] * 24,
+                "feat_dynamic_real": [[22.3] * 24, [55.0] * 24, [1] * 24, [10.5] * 24, [60.0] * 24, [2300.0] * 24, [0.95] * 24, [220.0] * 24],
+                "feat_static_cat": [0],
+                "feat_static_real": [1000.0]
+            }]
+        }
+
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        response = requests.post(endpoint_url, json=input_data, headers=headers)
+        response.raise_for_status()
+        predictions = response.json()
+
+        prediction = predictions["predictions"][0]["mean"]
+        timestamp = datetime.strptime(predictions["predictions"][0]["start"], "%Y-%m-%dT%H:%M:%S%z")
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        cur = conn.cursor()
+        cur.execute("INSERT INTO predictions (timestamp, prediction) VALUES (%s, %s)", (timestamp, json.dumps(prediction)))
+        conn.commit()
+        cur.close()
+        conn.close()
+
         return func.HttpResponse("Predictions stored", status_code=200)
     except Exception as e:
-        logging.error(f"Error: {e}")
-        return func.HttpResponse(f"Error: {e}", status_code=500)
+        return func.HttpResponse(f"Error: {str(e)}", status_code=500)
