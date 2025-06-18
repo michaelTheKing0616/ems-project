@@ -9,6 +9,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
         endpoint_url = os.getenv("ENDPOINT_URL")
         api_key = os.getenv("API_KEY")
+        print(f"ENDPOINT_URL: {endpoint_url}, API_KEY: {api_key[:5]}...")  # Mask key
 
         input_data = {
             "data": [{
